@@ -101,9 +101,6 @@ export default function Home() {
   const [simStatusColor, setSimStatusColor] = useState('var(--text-dim)');
   const [tealiumStatus, setTealiumStatus] = useState('pending');
   const [ldStatus, setLdStatus] = useState('pending');
-  const [flagPromo, setFlagPromo] = useState<boolean>(false);
-  const [flagCheckout, setFlagCheckout] = useState<string>('classic');
-  const [flagHero, setFlagHero] = useState<string>('A');
   const [flagPricing, setFlagPricing] = useState<string>('control');
   const [activeArrows, setActiveArrows] = useState<Record<string, boolean>>({ 'arrow-1': false, 'arrow-2': false, 'arrow-3': false });
 
@@ -165,13 +162,7 @@ export default function Home() {
     const client = ldClientRef.current;
     if (!client) return;
     try {
-      const promo = client.variation('show-promo-banner', false);
-      const checkout = client.variation('checkout-flow', 'classic');
-      const hero = client.variation('hero-image-variant', 'A');
       const pricing = client.variation('pricing-page-layout', 'control');
-      setFlagPromo(promo as boolean);
-      setFlagCheckout(checkout as string);
-      setFlagHero(hero as string);
       setFlagPricing(pricing as string);
     } catch (_e) { /* ignore */ }
   }, []);
@@ -333,42 +324,23 @@ export default function Home() {
   }, [logEvent, flashArrow, syncStats]);
 
   const fireLDFlagEval = useCallback((user: SimUser) => {
-    const flags = ['show-promo-banner', 'checkout-flow', 'hero-image-variant', 'pricing-page-layout'];
-    const flag = flags[Math.floor(Math.random() * flags.length)];
     let value: unknown;
 
     if (ldClientRef.current && ldReadyRef.current) {
       try {
         ldClientRef.current.identify({ kind:'user', key: user.key, name: `${user.firstName} ${user.lastName}`,
           custom: { customer_type: user.customerType, country: user.country }});
-        const defaultVal = flag === 'show-promo-banner' ? false : flag === 'pricing-page-layout' ? 'control' : 'default';
-        value = ldClientRef.current.variation(flag, defaultVal);
+        value = ldClientRef.current.variation('pricing-page-layout', 'control');
       } catch (_e) {
-        value = simulateFlagValue(flag);
+        value = simulateFlagValue('pricing-page-layout');
       }
     } else {
-      value = simulateFlagValue(flag);
+      value = simulateFlagValue('pricing-page-layout');
     }
 
     statsRef.current.ldEvents++;
     syncStats();
-    logEvent('ld', `variation('${flag}') \u2192 ${value}`, `${user.firstName} ${user.lastName[0]}.`);
-  }, [logEvent, syncStats]);
-
-  const fireLDTrackEvent = useCallback((user: SimUser) => {
-    const events = ['button-clicked','search-performed','page-scrolled','video-started'];
-    const event = events[Math.floor(Math.random() * events.length)];
-
-    if (ldClientRef.current && ldReadyRef.current) {
-      try {
-        ldClientRef.current.identify({ kind:'user', key: user.key });
-        ldClientRef.current.track(event, { source: 'demo' });
-      } catch (_e) { /* ignore */ }
-    }
-
-    statsRef.current.ldEvents++;
-    syncStats();
-    logEvent('ld', `track('${event}')`, `${user.firstName} ${user.lastName[0]}.`);
+    logEvent('ld', `variation('pricing-page-layout') \u2192 ${value}`, `${user.firstName} ${user.lastName[0]}.`);
   }, [logEvent, syncStats]);
 
   // ================================================================
@@ -376,14 +348,13 @@ export default function Home() {
   // ================================================================
   const fireRealisticEvent = useCallback((user: SimUser) => {
     const rand = Math.random();
-    if (rand < 0.3) fireTealiumPageView(user);
-    else if (rand < 0.5) fireTealiumProductView(user);
-    else if (rand < 0.65) fireTealiumAddToCart(user);
+    if (rand < 0.25) fireTealiumPageView(user);
+    else if (rand < 0.45) fireTealiumProductView(user);
+    else if (rand < 0.60) fireTealiumAddToCart(user);
     else if (rand < 0.75) fireTealiumPurchase(user);
-    else if (rand < 0.85) fireLDFlagEval(user);
-    else if (rand < 0.92) fireLDTrackEvent(user);
+    else if (rand < 0.90) fireLDFlagEval(user);
     else fireSegmentSync(user);
-  }, [fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireTealiumPurchase, fireLDFlagEval, fireLDTrackEvent, fireSegmentSync]);
+  }, [fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireTealiumPurchase, fireLDFlagEval, fireSegmentSync]);
 
   const fireEcommerceEvent = useCallback((user: SimUser) => {
     const step = user.sessionEvents % 5;
@@ -518,10 +489,9 @@ export default function Home() {
       case 'add_to_cart': fireTealiumAddToCart(user); break;
       case 'purchase': fireTealiumPurchase(user); break;
       case 'flag_eval': fireLDFlagEval(user); break;
-      case 'identify': fireLDTrackEvent(user); break;
       case 'segment_add': case 'segment_remove': fireSegmentSync(user); break;
     }
-  }, [generateUsers, fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireTealiumPurchase, fireLDFlagEval, fireLDTrackEvent, fireSegmentSync]);
+  }, [generateUsers, fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireTealiumPurchase, fireLDFlagEval, fireSegmentSync]);
 
   // ================================================================
   // SDK INITIALIZATION
@@ -717,7 +687,6 @@ export default function Home() {
             <button className="btn btn-teal" onClick={() => fireManualEvent('add_to_cart')}>Add to Cart</button>
             <button className="btn btn-teal" onClick={() => fireManualEvent('purchase')}>Purchase</button>
             <button className="btn btn-ld" onClick={() => fireManualEvent('flag_eval')}>Flag Eval</button>
-            <button className="btn btn-ld" onClick={() => fireManualEvent('identify')}>Identify User</button>
             <button className="btn btn-outline" onClick={() => fireManualEvent('segment_add')}>+ Segment</button>
             <button className="btn btn-outline" onClick={() => fireManualEvent('segment_remove')}>- Segment</button>
           </div>
@@ -783,18 +752,6 @@ export default function Home() {
             <div className="card">
               <h3>Feature Flags <span className="badge badge-ld">LaunchDarkly</span></h3>
               <div>
-                <div className="flag-row">
-                  <span className="flag-name">show-promo-banner</span>
-                  <span className={`flag-value ${flagPromo ? 'true' : 'false'}`}>{String(flagPromo)}</span>
-                </div>
-                <div className="flag-row">
-                  <span className="flag-name">checkout-flow</span>
-                  <span className="flag-value string">{flagCheckout}</span>
-                </div>
-                <div className="flag-row">
-                  <span className="flag-name">hero-image-variant</span>
-                  <span className="flag-value string">{flagHero}</span>
-                </div>
                 <div className="flag-row">
                   <span className="flag-name">pricing-page-layout</span>
                   <span className="flag-value string">{flagPricing}</span>
@@ -872,11 +829,6 @@ export default function Home() {
 // ================================================================
 // HELPER (outside component)
 // ================================================================
-function simulateFlagValue(flag: string): unknown {
-  switch(flag) {
-    case 'show-promo-banner': return Math.random() > 0.5;
-    case 'checkout-flow': return Math.random() > 0.5 ? 'streamlined' : 'classic';
-    case 'hero-image-variant': return ['A','B','C'][Math.floor(Math.random()*3)];
-    case 'pricing-page-layout': return ['control','simplified','comparison'][Math.floor(Math.random()*3)];
-  }
+function simulateFlagValue(_flag: string): unknown {
+  return ['control','simplified','comparison'][Math.floor(Math.random()*3)];
 }
