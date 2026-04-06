@@ -6,10 +6,10 @@ import Script from 'next/script';
 // ================================================================
 // CONFIGURATION
 // ================================================================
-const TEALIUM_ACCOUNT = 'YOUR_ACCOUNT';
-const TEALIUM_PROFILE = 'YOUR_PROFILE';
-const TEALIUM_ENV = 'dev';
-const LD_CLIENT_SIDE_ID = 'YOUR_CLIENT_SIDE_ID';
+const TEALIUM_ACCOUNT = 'sbx-launchdarkly';
+const TEALIUM_PROFILE = 'main';
+const TEALIUM_ENV = 'prod';
+const LD_CLIENT_SIDE_ID = '63b72c57f3f26c136b237f93';
 
 // ================================================================
 // CONSTANTS
@@ -529,11 +529,7 @@ export default function Home() {
   // ================================================================
   useEffect(() => {
     const checkTealium = () => {
-      if (TEALIUM_ACCOUNT === 'YOUR_ACCOUNT') {
-        setTealiumStatus('pending');
-        logEvent('system', 'Tealium not configured \u2014 running in simulation-only mode');
-        tealiumReadyRef.current = false;
-      } else if (window.utag) {
+      if (window.utag) {
         setTealiumStatus('connected');
         logEvent('system', 'Tealium utag.js loaded and ready');
         tealiumReadyRef.current = true;
@@ -546,12 +542,6 @@ export default function Home() {
     };
 
     const checkLD = () => {
-      if (LD_CLIENT_SIDE_ID === 'YOUR_CLIENT_SIDE_ID') {
-        setLdStatus('pending');
-        logEvent('system', 'LaunchDarkly not configured \u2014 running in simulation-only mode');
-        ldReadyRef.current = false;
-        return;
-      }
       if (window.LDClient) {
         try {
           const ctx = { kind: 'user', key: 'demo-bootstrap', name: 'Demo Bootstrap', anonymous: false };
@@ -574,22 +564,20 @@ export default function Home() {
       }
     };
 
-    // Load Tealium utag.js dynamically if configured
-    if (TEALIUM_ACCOUNT !== 'YOUR_ACCOUNT') {
-      window.utag_data = {
-        page_type: 'demo',
-        page_name: 'Tealium LD Integration Demo',
-        site_section: 'demo',
-        country_code: 'US',
-        currency_code: 'USD',
-        tealium_event: 'page_view'
-      };
-      const script = document.createElement('script');
-      script.src = `//tags.tiqcdn.com/utag/${TEALIUM_ACCOUNT}/${TEALIUM_PROFILE}/${TEALIUM_ENV}/utag.js`;
-      script.type = 'text/javascript';
-      script.async = true;
-      document.head.appendChild(script);
-    }
+    // Load Tealium utag.js dynamically
+    window.utag_data = {
+      page_type: 'demo',
+      page_name: 'Tealium LD Integration Demo',
+      site_section: 'demo',
+      country_code: 'US',
+      currency_code: 'USD',
+      tealium_event: 'page_view'
+    };
+    const script = document.createElement('script');
+    script.src = `//tags.tiqcdn.com/utag/${TEALIUM_ACCOUNT}/${TEALIUM_PROFILE}/${TEALIUM_ENV}/utag.js`;
+    script.type = 'text/javascript';
+    script.async = true;
+    document.head.appendChild(script);
 
     const timer = setTimeout(() => {
       checkTealium();
