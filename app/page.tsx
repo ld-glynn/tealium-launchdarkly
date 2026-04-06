@@ -210,6 +210,8 @@ export default function Home() {
       product_id: [product.id],
       product_name: [product.name],
       product_price: [String(product.price)],
+      product_unit_price: [product.price],
+      product_quantity: [1],
       product_category: [product.category],
       customer_id: user.key,
       customer_type: user.customerType,
@@ -234,7 +236,8 @@ export default function Home() {
       product_id: [product.id],
       product_name: [product.name],
       product_price: [String(product.price)],
-      product_quantity: ['1'],
+      product_unit_price: [product.price],
+      product_quantity: [1],
       customer_id: user.key,
     };
     if (tealiumReadyRef.current && window.utag) {
