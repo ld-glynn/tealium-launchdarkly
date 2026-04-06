@@ -325,25 +325,29 @@ export default function Home() {
   }, [logEvent, flashArrow, syncStats]);
 
   const fireLDFlagEval = useCallback((user: SimUser) => {
-    let value: unknown;
-
-    if (ldClientRef.current && ldReadyRef.current) {
-      try {
-        ldClientRef.current.identify({ kind:'user', key: user.key, name: `${user.firstName} ${user.lastName}`,
-          custom: { customer_type: user.customerType, country: user.country }});
-        value = ldClientRef.current.variation('pricing-page-layout', 'control');
-        const segValue = ldClientRef.current.variation('tealium-segment-offer', 'no-offer');
-        logEvent('ld', `variation('tealium-segment-offer') \u2192 ${segValue}`, `${user.firstName} ${user.lastName[0]}.`);
-      } catch (_e) {
-        value = simulateFlagValue('pricing-page-layout');
-      }
-    } else {
-      value = simulateFlagValue('pricing-page-layout');
-    }
+    // Use server-side SDK via API route for accurate per-user evaluation
+    fetch('/api/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: [user] }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.results && data.results[0]) {
+          const res = data.results[0];
+          logEvent('ld', `variation('pricing-page-layout') \u2192 ${res.pricingLayout}`, `${user.firstName} ${user.lastName[0]}.`);
+          logEvent('ld', `variation('tealium-segment-offer') \u2192 ${res.segmentOffer}`, `${user.firstName} ${user.lastName[0]}.`);
+          setFlagPricing(res.pricingLayout);
+          setFlagSegmentOffer(res.segmentOffer);
+        }
+      })
+      .catch(() => {
+        const value = simulateFlagValue('pricing-page-layout');
+        logEvent('ld', `variation('pricing-page-layout') \u2192 ${value}`, `${user.firstName} ${user.lastName[0]}.`);
+      });
 
     statsRef.current.ldEvents++;
     syncStats();
-    logEvent('ld', `variation('pricing-page-layout') \u2192 ${value}`, `${user.firstName} ${user.lastName[0]}.`);
   }, [logEvent, syncStats]);
 
   // ================================================================
@@ -463,6 +467,26 @@ export default function Home() {
     setSimStatusColor('var(--green)');
 
     logEvent('system', `Simulation started \u2014 ${userCount} users, mode: ${simMode}`);
+
+    // Bulk-evaluate flags for all users via server SDK to register them in LD
+    const allUsers = usersRef.current;
+    logEvent('system', `Evaluating flags for ${allUsers.length} users via server SDK...`);
+    fetch('/api/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: allUsers }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.results) {
+          logEvent('system', `Registered ${data.results.length} users with LaunchDarkly`);
+          statsRef.current.ldEvents += data.results.length;
+          syncStats();
+        }
+      })
+      .catch(() => {
+        logEvent('system', 'Bulk flag evaluation failed \u2014 falling back to simulation mode');
+      });
 
     scheduleNextEvent();
 
