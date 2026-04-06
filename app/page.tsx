@@ -60,10 +60,7 @@ interface LogEntry {
 }
 
 interface SegmentData {
-  hvs: Set<string>;
-  ca: Set<string>;
-  nv: Set<string>;
-  pe: Set<string>;
+  tealium: Set<string>;
 }
 
 // Globals for external SDKs
@@ -90,7 +87,7 @@ export default function Home() {
   const [simRunning, setSimRunning] = useState(false);
   const [stats, setStats] = useState({ tealiumEvents: 0, ldEvents: 0, segmentSyncs: 0 });
   const [users, setUsers] = useState<SimUser[]>([]);
-  const [segments, setSegments] = useState<SegmentData>({ hvs: new Set(), ca: new Set(), nv: new Set(), pe: new Set() });
+  const [segments, setSegments] = useState<SegmentData>({ tealium: new Set() });
   const [eventLog, setEventLog] = useState<LogEntry[]>([]);
   const [simMode, setSimMode] = useState('realistic');
   const [userCount, setUserCount] = useState(25);
@@ -113,7 +110,7 @@ export default function Home() {
   const simDurationRef = useRef(0);
   const usersRef = useRef<SimUser[]>([]);
   const statsRef = useRef({ tealiumEvents: 0, ldEvents: 0, segmentSyncs: 0 });
-  const segmentsRef = useRef<SegmentData>({ hvs: new Set(), ca: new Set(), nv: new Set(), pe: new Set() });
+  const segmentsRef = useRef<SegmentData>({ tealium: new Set() });
   const logIdRef = useRef(0);
   const tealiumReadyRef = useRef(false);
   const ldReadyRef = useRef(false);
@@ -176,10 +173,7 @@ export default function Home() {
   const syncStats = useCallback(() => {
     setStats({ ...statsRef.current });
     setSegments({
-      hvs: new Set(segmentsRef.current.hvs),
-      ca: new Set(segmentsRef.current.ca),
-      nv: new Set(segmentsRef.current.nv),
-      pe: new Set(segmentsRef.current.pe),
+      tealium: new Set(segmentsRef.current.tealium),
     });
   }, []);
 
@@ -255,29 +249,16 @@ export default function Home() {
   }, [logEvent, flashArrow, syncStats]);
 
   const fireSegmentSync = useCallback((user: SimUser) => {
-    const rand = Math.random();
-    let audience: string, segSet: keyof SegmentData;
-
-    if (rand < 0.25) {
-      audience = 'New Visitors'; segSet = 'nv';
-    } else if (rand < 0.5) {
-      audience = 'Cart Abandoners'; segSet = 'ca';
-    } else if (rand < 0.75) {
-      audience = 'Promo Engaged'; segSet = 'pe';
-    } else {
-      audience = 'High-Value Shoppers'; segSet = 'hvs';
-    }
-
-    const adding = !segmentsRef.current[segSet].has(user.key) || Math.random() > 0.3;
+    const adding = !segmentsRef.current.tealium.has(user.key) || Math.random() > 0.3;
 
     if (adding) {
-      segmentsRef.current[segSet].add(user.key);
-      logEvent('tealium', `Audience join: ${audience}`, `${user.firstName} ${user.lastName[0]}.`);
-      logEvent('ld', `Segment sync: Add member \u2192 ${audience.toLowerCase().replace(/\s/g,'-')}`, user.key);
+      segmentsRef.current.tealium.add(user.key);
+      logEvent('tealium', `Audience join: LaunchDarkly Test Audience`, `${user.firstName} ${user.lastName[0]}.`);
+      logEvent('ld', `Segment sync: Add member \u2192 tealium-segment`, user.key);
     } else {
-      segmentsRef.current[segSet].delete(user.key);
-      logEvent('tealium', `Audience leave: ${audience}`, `${user.firstName} ${user.lastName[0]}.`);
-      logEvent('ld', `Segment sync: Remove member \u2192 ${audience.toLowerCase().replace(/\s/g,'-')}`, user.key);
+      segmentsRef.current.tealium.delete(user.key);
+      logEvent('tealium', `Audience leave: LaunchDarkly Test Audience`, `${user.firstName} ${user.lastName[0]}.`);
+      logEvent('ld', `Segment sync: Remove member \u2192 tealium-segment`, user.key);
     }
 
     statsRef.current.segmentSyncs++;
@@ -314,11 +295,11 @@ export default function Home() {
     flashArrow('arrow-1');
     flashArrow('arrow-2');
 
-    if (user.totalSpent > 200 && !segmentsRef.current.hvs.has(user.key)) {
-      segmentsRef.current.hvs.add(user.key);
+    if (!segmentsRef.current.tealium.has(user.key)) {
+      segmentsRef.current.tealium.add(user.key);
       statsRef.current.segmentSyncs++;
-      logEvent('tealium', `Audience joined: High-Value Shoppers`, `${user.firstName} (total: $${user.totalSpent.toFixed(2)})`);
-      logEvent('ld', `Segment sync: +1 member \u2192 high-value-shoppers`, user.key);
+      logEvent('tealium', `Audience joined: LaunchDarkly Test Audience`, `${user.firstName} (purchase triggered)`);
+      logEvent('ld', `Segment sync: +1 member \u2192 tealium-segment`, user.key);
       flashArrow('arrow-3');
       syncStats();
     }
@@ -785,10 +766,7 @@ export default function Home() {
                 </thead>
                 <tbody>
                   {[
-                    { audience: 'High-Value Shoppers', segment: 'high-value-shoppers', set: segments.hvs },
-                    { audience: 'Cart Abandoners', segment: 'cart-abandoners', set: segments.ca },
-                    { audience: 'New Visitors', segment: 'new-visitors', set: segments.nv },
-                    { audience: 'Promo Engaged', segment: 'promo-engaged', set: segments.pe },
+                    { audience: 'LaunchDarkly Test Audience', segment: 'tealium-segment', set: segments.tealium },
                   ].map(row => (
                     <tr key={row.segment}>
                       <td>{row.audience}</td>
