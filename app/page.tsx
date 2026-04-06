@@ -273,17 +273,34 @@ export default function Home() {
     const total = user.cart.reduce((sum, p) => sum + p.price, 0);
     user.totalSpent += total;
     const orderId = 'ORD-' + Math.random().toString(36).substr(2,8).toUpperCase();
+    const subtotal = total;
+    const tax = Math.round(total * 0.08 * 100) / 100;
+    const shipping = total > 100 ? 0 : 5.99;
+    const orderTotal = subtotal + tax + shipping;
+    const STATES = ['CA','NY','TX','FL','IL','PA','OH','GA','NC','MI'];
+    const state = STATES[Math.floor(Math.random() * STATES.length)];
+    const zip = String(10000 + Math.floor(Math.random() * 89999));
     const data: Record<string, unknown> = {
       tealium_event: 'purchase',
       event_name: 'purchase-complete',
       order_id: orderId,
-      order_total: String(total.toFixed(2)),
+      order_total: String(orderTotal.toFixed(2)),
+      order_subtotal: String(subtotal.toFixed(2)),
+      order_tax: String(tax.toFixed(2)),
+      order_shipping: String(shipping.toFixed(2)),
       order_currency: 'USD',
       product_id: user.cart.map(p => p.id),
       product_name: user.cart.map(p => p.name),
       product_price: user.cart.map(p => String(p.price)),
+      product_unit_price: user.cart.map(p => p.price),
+      product_quantity: user.cart.map(() => 1),
+      product_on_page: user.cart.map(p => p.name),
       customer_id: user.key,
       customer_type: user.customerType,
+      customer_email: user.email,
+      customer_country: user.country,
+      customer_state: state,
+      customer_zip: zip,
     };
     if (tealiumReadyRef.current && window.utag) {
       try { window.utag.link(data); } catch (_e) { /* ignore */ }
