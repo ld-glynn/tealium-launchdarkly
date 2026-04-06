@@ -102,6 +102,7 @@ export default function Home() {
   const [tealiumStatus, setTealiumStatus] = useState('pending');
   const [ldStatus, setLdStatus] = useState('pending');
   const [flagPricing, setFlagPricing] = useState<string>('control');
+  const [flagSegmentOffer, setFlagSegmentOffer] = useState<string>('no-offer');
   const [activeArrows, setActiveArrows] = useState<Record<string, boolean>>({ 'arrow-1': false, 'arrow-2': false, 'arrow-3': false });
 
   // Refs for mutable state used in timers
@@ -163,7 +164,9 @@ export default function Home() {
     if (!client) return;
     try {
       const pricing = client.variation('pricing-page-layout', 'control');
+      const segOffer = client.variation('tealium-segment-offer', 'no-offer');
       setFlagPricing(pricing as string);
+      setFlagSegmentOffer(segOffer as string);
     } catch (_e) { /* ignore */ }
   }, []);
 
@@ -331,6 +334,8 @@ export default function Home() {
         ldClientRef.current.identify({ kind:'user', key: user.key, name: `${user.firstName} ${user.lastName}`,
           custom: { customer_type: user.customerType, country: user.country }});
         value = ldClientRef.current.variation('pricing-page-layout', 'control');
+        const segValue = ldClientRef.current.variation('tealium-segment-offer', 'no-offer');
+        logEvent('ld', `variation('tealium-segment-offer') \u2192 ${segValue}`, `${user.firstName} ${user.lastName[0]}.`);
       } catch (_e) {
         value = simulateFlagValue('pricing-page-layout');
       }
@@ -755,6 +760,10 @@ export default function Home() {
                 <div className="flag-row">
                   <span className="flag-name">pricing-page-layout</span>
                   <span className="flag-value string">{flagPricing}</span>
+                </div>
+                <div className="flag-row">
+                  <span className="flag-name">tealium-segment-offer</span>
+                  <span className="flag-value string">{flagSegmentOffer}</span>
                 </div>
               </div>
               <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '12px' }}>
