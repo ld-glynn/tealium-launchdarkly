@@ -104,6 +104,7 @@ export default function Home() {
   const [flagPromo, setFlagPromo] = useState<boolean>(false);
   const [flagCheckout, setFlagCheckout] = useState<string>('classic');
   const [flagHero, setFlagHero] = useState<string>('A');
+  const [flagPricing, setFlagPricing] = useState<string>('control');
   const [activeArrows, setActiveArrows] = useState<Record<string, boolean>>({ 'arrow-1': false, 'arrow-2': false, 'arrow-3': false });
 
   // Refs for mutable state used in timers
@@ -167,9 +168,11 @@ export default function Home() {
       const promo = client.variation('show-promo-banner', false);
       const checkout = client.variation('checkout-flow', 'classic');
       const hero = client.variation('hero-image-variant', 'A');
+      const pricing = client.variation('pricing-page-layout', 'control');
       setFlagPromo(promo as boolean);
       setFlagCheckout(checkout as string);
       setFlagHero(hero as string);
+      setFlagPricing(pricing as string);
     } catch (_e) { /* ignore */ }
   }, []);
 
@@ -229,6 +232,7 @@ export default function Home() {
     statsRef.current.tealiumEvents++;
     syncStats();
     logEvent('tealium', `utag.link() \u2014 product_view: ${product.name}`, `$${product.price}`);
+    logEvent('tealium', `\u2192 EventStream \u2192 LD Metric Import: product-viewed`, product.id);
     flashArrow('arrow-1');
     flashArrow('arrow-2');
   }, [logEvent, flashArrow, syncStats]);
@@ -251,6 +255,7 @@ export default function Home() {
     statsRef.current.tealiumEvents++;
     syncStats();
     logEvent('tealium', `utag.link() \u2014 add_to_cart: ${product.name}`, `${user.firstName} ${user.lastName[0]}.`);
+    logEvent('tealium', `\u2192 EventStream \u2192 LD Metric Import: add-to-cart`, product.id);
     flashArrow('arrow-1');
     flashArrow('arrow-2');
   }, [logEvent, flashArrow, syncStats]);
@@ -308,17 +313,10 @@ export default function Home() {
     if (tealiumReadyRef.current && window.utag) {
       try { window.utag.link(data); } catch (_e) { /* ignore */ }
     }
-    if (ldClientRef.current && ldReadyRef.current) {
-      try {
-        ldClientRef.current.identify({ kind:'user', key: user.key, name: `${user.firstName} ${user.lastName}` });
-        ldClientRef.current.track('purchase-complete', { orderId }, total);
-      } catch (_e) { /* ignore */ }
-    }
     statsRef.current.tealiumEvents++;
-    statsRef.current.ldEvents++;
     syncStats();
     logEvent('tealium', `utag.link() \u2014 purchase: ${orderId}`, `$${total.toFixed(2)}`);
-    logEvent('ld', `track('purchase-complete') \u2014 metric value: $${total.toFixed(2)}`, orderId);
+    logEvent('tealium', `\u2192 EventStream \u2192 LD Metric Import: purchase-complete ($${total.toFixed(2)})`, orderId);
     flashArrow('arrow-1');
     flashArrow('arrow-2');
 
@@ -335,7 +333,7 @@ export default function Home() {
   }, [logEvent, flashArrow, syncStats]);
 
   const fireLDFlagEval = useCallback((user: SimUser) => {
-    const flags = ['show-promo-banner', 'checkout-flow', 'hero-image-variant'];
+    const flags = ['show-promo-banner', 'checkout-flow', 'hero-image-variant', 'pricing-page-layout'];
     const flag = flags[Math.floor(Math.random() * flags.length)];
     let value: unknown;
 
@@ -343,7 +341,8 @@ export default function Home() {
       try {
         ldClientRef.current.identify({ kind:'user', key: user.key, name: `${user.firstName} ${user.lastName}`,
           custom: { customer_type: user.customerType, country: user.country }});
-        value = ldClientRef.current.variation(flag, flag === 'show-promo-banner' ? false : 'default');
+        const defaultVal = flag === 'show-promo-banner' ? false : flag === 'pricing-page-layout' ? 'control' : 'default';
+        value = ldClientRef.current.variation(flag, defaultVal);
       } catch (_e) {
         value = simulateFlagValue(flag);
       }
@@ -796,6 +795,10 @@ export default function Home() {
                   <span className="flag-name">hero-image-variant</span>
                   <span className="flag-value string">{flagHero}</span>
                 </div>
+                <div className="flag-row">
+                  <span className="flag-name">pricing-page-layout</span>
+                  <span className="flag-value string">{flagPricing}</span>
+                </div>
               </div>
               <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '12px' }}>
                 Flag values update in real-time via LD SDK streaming
@@ -874,5 +877,6 @@ function simulateFlagValue(flag: string): unknown {
     case 'show-promo-banner': return Math.random() > 0.5;
     case 'checkout-flow': return Math.random() > 0.5 ? 'streamlined' : 'classic';
     case 'hero-image-variant': return ['A','B','C'][Math.floor(Math.random()*3)];
+    case 'pricing-page-layout': return ['control','simplified','comparison'][Math.floor(Math.random()*3)];
   }
 }
