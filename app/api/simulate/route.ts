@@ -48,6 +48,7 @@ function buildPageViewPayload(user: SimUser) {
     tealium_datasource: TEALIUM_DATASOURCE,
     tealium_visitor_id: user.key,
     tealium_event: 'page_view',
+    event_name: 'page-viewed',
     page_name: page,
     page_type: page.toLowerCase().replace(/\s/g, '_'),
     customer_id: user.key,
