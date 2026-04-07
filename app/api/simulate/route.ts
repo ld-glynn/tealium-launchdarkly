@@ -96,6 +96,8 @@ function buildCartViewPayload(user: SimUser) {
     product_price: [String(product.price)],
     product_unit_price: [product.price],
     product_quantity: [1],
+    cart_total_items: 1,
+    cart_total_value: product.price,
     customer_id: user.key,
     _detail: `cart_view: ${product.name}`,
   };
