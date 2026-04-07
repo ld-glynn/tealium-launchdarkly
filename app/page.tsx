@@ -1,15 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Script from 'next/script';
-
-// ================================================================
-// CONFIGURATION
-// ================================================================
-const TEALIUM_ACCOUNT = 'sbx-launchdarkly';
-const TEALIUM_PROFILE = 'main';
-const TEALIUM_ENV = 'prod';
-const LD_CLIENT_SIDE_ID = '63b72c57f3f26c136b237f93';
 
 // ================================================================
 // CONSTANTS
@@ -19,17 +10,6 @@ const FIRST_NAMES = ['Emma','Liam','Olivia','Noah','Ava','Ethan','Sophia','Mason
   'Abigail','Jackson','Emily','Sebastian','Elizabeth','Jack','Sofia','Owen','Victoria','Henry'];
 const LAST_NAMES = ['Smith','Johnson','Williams','Brown','Jones','Garcia','Miller','Davis','Rodriguez',
   'Martinez','Hernandez','Lopez','Wilson','Anderson','Thomas','Taylor','Moore','Jackson','Martin','Lee'];
-const PAGES = ['Homepage','Product List','Product Detail','Cart','Checkout','Order Confirmation','About','Blog','FAQ','Contact'];
-const PRODUCTS = [
-  {id:'SKU-001',name:'Premium Headphones',price:149.99,category:'Electronics'},
-  {id:'SKU-002',name:'Running Shoes',price:89.99,category:'Footwear'},
-  {id:'SKU-003',name:'Coffee Maker',price:59.99,category:'Kitchen'},
-  {id:'SKU-004',name:'Yoga Mat',price:29.99,category:'Fitness'},
-  {id:'SKU-005',name:'Backpack',price:74.99,category:'Accessories'},
-  {id:'SKU-006',name:'Wireless Mouse',price:34.99,category:'Electronics'},
-  {id:'SKU-007',name:'Water Bottle',price:19.99,category:'Fitness'},
-  {id:'SKU-008',name:'Desk Lamp',price:44.99,category:'Home Office'},
-];
 const COUNTRIES = ['US','US','US','US','UK','UK','CA','CA','DE','AU'];
 const CUSTOMER_TYPES = ['new','returning','returning','returning','premium','premium'];
 const COLORS = ['#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7','#DDA0DD','#98D8C8','#F7DC6F','#BB8FCE','#85C1E9'];
@@ -45,10 +25,6 @@ interface SimUser {
   country: string;
   customerType: string;
   color: string;
-  cart: typeof PRODUCTS[number][];
-  pageHistory: string[];
-  totalSpent: number;
-  sessionEvents: number;
 }
 
 interface LogEntry {
@@ -61,22 +37,6 @@ interface LogEntry {
 
 interface SegmentData {
   tealium: Set<string>;
-}
-
-// Globals for external SDKs
-declare global {
-  interface Window {
-    utag?: { view: (data: Record<string, unknown>) => void; link: (data: Record<string, unknown>) => void };
-    LDClient?: { initialize: (id: string, ctx: Record<string, unknown>) => LDClientInstance };
-    utag_data?: Record<string, string>;
-  }
-}
-
-interface LDClientInstance {
-  on: (event: string, cb: () => void) => void;
-  variation: (flag: string, defaultValue: unknown) => unknown;
-  identify: (ctx: Record<string, unknown>) => void;
-  track: (event: string, data?: Record<string, unknown>, metricValue?: number) => void;
 }
 
 // ================================================================
@@ -112,12 +72,11 @@ export default function Home() {
   const statsRef = useRef({ tealiumEvents: 0, ldEvents: 0, segmentSyncs: 0 });
   const segmentsRef = useRef<SegmentData>({ tealium: new Set() });
   const logIdRef = useRef(0);
-  const tealiumReadyRef = useRef(false);
-  const ldReadyRef = useRef(false);
-  const ldClientRef = useRef<LDClientInstance | null>(null);
   const eventLogRef = useRef<HTMLDivElement>(null);
   const simModeRef = useRef('realistic');
   const eventFreqRef = useRef(1500);
+  // Track per-user session event counts for ecommerce mode
+  const userSessionEventsRef = useRef<Record<string, number>>({});
 
   // Keep refs in sync
   useEffect(() => { simModeRef.current = simMode; }, [simMode]);
@@ -154,20 +113,6 @@ export default function Home() {
   }, []);
 
   // ================================================================
-  // FLAG UPDATE
-  // ================================================================
-  const updateFlags = useCallback(() => {
-    const client = ldClientRef.current;
-    if (!client) return;
-    try {
-      const pricing = client.variation('pricing-page-layout', 'control');
-      const segOffer = client.variation('tealium-segment-offer', 'no-offer');
-      setFlagPricing(pricing as string);
-      setFlagSegmentOffer(segOffer as string);
-    } catch (_e) { /* ignore */ }
-  }, []);
-
-  // ================================================================
   // STATS SYNC
   // ================================================================
   const syncStats = useCallback(() => {
@@ -178,78 +123,136 @@ export default function Home() {
   }, []);
 
   // ================================================================
-  // EVENT FIRING FUNCTIONS
+  // API HEALTH CHECK ON MOUNT
   // ================================================================
-  const fireTealiumPageView = useCallback((user: SimUser) => {
-    const page = PAGES[Math.floor(Math.random() * PAGES.length)];
-    user.pageHistory.push(page);
-    const data: Record<string, unknown> = {
-      tealium_event: 'page_view',
-      page_name: page,
-      page_type: page.toLowerCase().replace(/\s/g, '_'),
-      customer_id: user.key,
-      customer_type: user.customerType,
-      country_code: user.country,
-      currency_code: user.country === 'UK' ? 'GBP' : user.country === 'DE' ? 'EUR' : 'USD',
+  useEffect(() => {
+    // Check Tealium Collect API reachability
+    setTealiumStatus('pending');
+    fetch('/api/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        users: [{ key: 'health-check', firstName: 'Health', lastName: 'Check', email: 'health@check.com', customerType: 'new', country: 'US' }],
+        eventType: 'page_view',
+      }),
+    })
+      .then(r => {
+        if (r.ok) {
+          setTealiumStatus('connected');
+          logEvent('system', 'Tealium Collect API reachable (server-side)');
+        } else {
+          setTealiumStatus('disconnected');
+          logEvent('system', 'Tealium Collect API returned error');
+        }
+      })
+      .catch(() => {
+        setTealiumStatus('disconnected');
+        logEvent('system', 'Tealium Collect API unreachable');
+      });
+
+    // Check LD server SDK via evaluate endpoint
+    setLdStatus('pending');
+    fetch('/api/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        users: [{ key: 'health-check', firstName: 'Health', lastName: 'Check', email: 'health@check.com', customerType: 'new', country: 'US' }],
+      }),
+    })
+      .then(r => {
+        if (r.ok) {
+          setLdStatus('connected');
+          logEvent('system', 'LaunchDarkly Server SDK connected');
+        } else {
+          setLdStatus('disconnected');
+          logEvent('system', 'LaunchDarkly Server SDK error');
+        }
+      })
+      .catch(() => {
+        setLdStatus('disconnected');
+        logEvent('system', 'LaunchDarkly Server SDK unreachable');
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (simTimerRef.current) clearTimeout(simTimerRef.current);
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     };
-    if (tealiumReadyRef.current && window.utag) {
-      try { window.utag.view(data); } catch (_e) { /* ignore */ }
+  }, []);
+
+  // ================================================================
+  // SERVER-SIDE EVENT FIRING
+  // ================================================================
+  const fireTealiumEvent = useCallback(async (eventType: string, targetUsers: SimUser[]) => {
+    try {
+      const resp = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: targetUsers, eventType }),
+      });
+      const data = await resp.json();
+
+      if (data.results) {
+        for (const result of data.results) {
+          statsRef.current.tealiumEvents++;
+          const statusNote = result.status === 'sent' ? '' : ' [ERROR]';
+          logEvent('tealium', `Collect API${statusNote} -- ${result.detail}`, `user: ${result.user}`);
+
+          // For product_view, add_to_cart, purchase: also log EventStream flow
+          if (eventType === 'product_view' || eventType === 'add_to_cart') {
+            const eventName = eventType === 'product_view' ? 'product-viewed' : 'add-to-cart';
+            logEvent('tealium', `-> EventStream -> LD Metric Import: ${eventName}`, result.user);
+            flashArrow('arrow-2');
+          } else if (eventType === 'purchase') {
+            logEvent('tealium', `-> EventStream -> LD Metric Import: purchase-complete`, result.user);
+            flashArrow('arrow-2');
+
+            // Auto-add purchasers to segment
+            const userKey = targetUsers.find(u => `${u.firstName} ${u.lastName[0]}.` === result.user)?.key;
+            if (userKey && !segmentsRef.current.tealium.has(userKey)) {
+              segmentsRef.current.tealium.add(userKey);
+              statsRef.current.segmentSyncs++;
+              logEvent('tealium', `Audience joined: LaunchDarkly Test Audience`, `${result.user} (purchase triggered)`);
+              logEvent('ld', `Segment sync: +1 member -> tealium-segment`, userKey);
+              flashArrow('arrow-3');
+            }
+          }
+
+          flashArrow('arrow-1');
+        }
+        syncStats();
+      }
+    } catch (err) {
+      logEvent('system', `Tealium event failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    statsRef.current.tealiumEvents++;
-    syncStats();
-    logEvent('tealium', `utag.view() \u2014 ${page}`, `user: ${user.firstName} ${user.lastName[0]}.`);
-    flashArrow('arrow-1');
   }, [logEvent, flashArrow, syncStats]);
 
-  const fireTealiumProductView = useCallback((user: SimUser) => {
-    const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
-    const data: Record<string, unknown> = {
-      tealium_event: 'product_view',
-      event_name: 'product-viewed',
-      page_name: 'Product Detail',
-      product_id: [product.id],
-      product_name: [product.name],
-      product_price: [String(product.price)],
-      product_unit_price: [product.price],
-      product_quantity: [1],
-      product_category: [product.category],
-      customer_id: user.key,
-      customer_type: user.customerType,
-    };
-    if (tealiumReadyRef.current && window.utag) {
-      try { window.utag.link(data); } catch (_e) { /* ignore */ }
-    }
-    statsRef.current.tealiumEvents++;
-    syncStats();
-    logEvent('tealium', `utag.link() \u2014 product_view: ${product.name}`, `$${product.price}`);
-    logEvent('tealium', `\u2192 EventStream \u2192 LD Metric Import: product-viewed`, product.id);
-    flashArrow('arrow-1');
-    flashArrow('arrow-2');
-  }, [logEvent, flashArrow, syncStats]);
+  const fireLDFlagEval = useCallback(async (targetUsers: SimUser[]) => {
+    try {
+      const resp = await fetch('/api/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ users: targetUsers }),
+      });
+      const data = await resp.json();
 
-  const fireTealiumAddToCart = useCallback((user: SimUser) => {
-    const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
-    user.cart.push(product);
-    const data: Record<string, unknown> = {
-      tealium_event: 'cart_add',
-      event_name: 'add-to-cart',
-      product_id: [product.id],
-      product_name: [product.name],
-      product_price: [String(product.price)],
-      product_unit_price: [product.price],
-      product_quantity: [1],
-      customer_id: user.key,
-    };
-    if (tealiumReadyRef.current && window.utag) {
-      try { window.utag.link(data); } catch (_e) { /* ignore */ }
+      if (data.results) {
+        for (const res of data.results) {
+          logEvent('ld', `variation('pricing-page-layout') -> ${res.pricingLayout}`, `${res.name}`);
+          logEvent('ld', `variation('tealium-segment-offer') -> ${res.segmentOffer}`, `${res.name}`);
+          setFlagPricing(res.pricingLayout);
+          setFlagSegmentOffer(res.segmentOffer);
+          statsRef.current.ldEvents++;
+        }
+        syncStats();
+      }
+    } catch (err) {
+      logEvent('system', `LD flag eval failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    statsRef.current.tealiumEvents++;
-    syncStats();
-    logEvent('tealium', `utag.link() \u2014 add_to_cart: ${product.name}`, `${user.firstName} ${user.lastName[0]}.`);
-    logEvent('tealium', `\u2192 EventStream \u2192 LD Metric Import: add-to-cart`, product.id);
-    flashArrow('arrow-1');
-    flashArrow('arrow-2');
-  }, [logEvent, flashArrow, syncStats]);
+  }, [logEvent, syncStats]);
 
   const fireSegmentSync = useCallback((user: SimUser) => {
     const adding = !segmentsRef.current.tealium.has(user.key) || Math.random() > 0.3;
@@ -257,11 +260,11 @@ export default function Home() {
     if (adding) {
       segmentsRef.current.tealium.add(user.key);
       logEvent('tealium', `Audience join: LaunchDarkly Test Audience`, `${user.firstName} ${user.lastName[0]}.`);
-      logEvent('ld', `Segment sync: Add member \u2192 tealium-segment`, user.key);
+      logEvent('ld', `Segment sync: Add member -> tealium-segment`, user.key);
     } else {
       segmentsRef.current.tealium.delete(user.key);
       logEvent('tealium', `Audience leave: LaunchDarkly Test Audience`, `${user.firstName} ${user.lastName[0]}.`);
-      logEvent('ld', `Segment sync: Remove member \u2192 tealium-segment`, user.key);
+      logEvent('ld', `Segment sync: Remove member -> tealium-segment`, user.key);
     }
 
     statsRef.current.segmentSyncs++;
@@ -269,122 +272,9 @@ export default function Home() {
     flashArrow('arrow-3');
   }, [logEvent, flashArrow, syncStats]);
 
-  const fireTealiumPurchase = useCallback((user: SimUser) => {
-    if (user.cart.length === 0) {
-      user.cart.push(PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)]);
-    }
-    const total = user.cart.reduce((sum, p) => sum + p.price, 0);
-    user.totalSpent += total;
-    const orderId = 'ORD-' + Math.random().toString(36).substr(2,8).toUpperCase();
-    const subtotal = total;
-    const tax = Math.round(total * 0.08 * 100) / 100;
-    const shipping = total > 100 ? 0 : 5.99;
-    const orderTotal = subtotal + tax + shipping;
-    const STATES = ['CA','NY','TX','FL','IL','PA','OH','GA','NC','MI'];
-    const state = STATES[Math.floor(Math.random() * STATES.length)];
-    const zip = String(10000 + Math.floor(Math.random() * 89999));
-    const data: Record<string, unknown> = {
-      tealium_event: 'purchase',
-      event_name: 'purchase-complete',
-      order_id: orderId,
-      order_total: String(orderTotal.toFixed(2)),
-      order_subtotal: String(subtotal.toFixed(2)),
-      order_tax: String(tax.toFixed(2)),
-      order_shipping: String(shipping.toFixed(2)),
-      order_currency: 'USD',
-      product_id: user.cart.map(p => p.id),
-      product_name: user.cart.map(p => p.name),
-      product_price: user.cart.map(p => String(p.price)),
-      product_unit_price: user.cart.map(p => p.price),
-      product_quantity: user.cart.map(() => 1),
-      product_on_page: user.cart.map(p => p.name),
-      customer_id: user.key,
-      customer_type: user.customerType,
-      customer_email: user.email,
-      customer_country: user.country,
-      customer_state: state,
-      customer_zip: zip,
-    };
-    if (tealiumReadyRef.current && window.utag) {
-      try { window.utag.link(data); } catch (_e) { /* ignore */ }
-    }
-    statsRef.current.tealiumEvents++;
-    syncStats();
-    logEvent('tealium', `utag.link() \u2014 purchase: ${orderId}`, `$${total.toFixed(2)}`);
-    logEvent('tealium', `\u2192 EventStream \u2192 LD Metric Import: purchase-complete ($${total.toFixed(2)})`, orderId);
-    flashArrow('arrow-1');
-    flashArrow('arrow-2');
-
-    if (!segmentsRef.current.tealium.has(user.key)) {
-      segmentsRef.current.tealium.add(user.key);
-      statsRef.current.segmentSyncs++;
-      logEvent('tealium', `Audience joined: LaunchDarkly Test Audience`, `${user.firstName} (purchase triggered)`);
-      logEvent('ld', `Segment sync: +1 member \u2192 tealium-segment`, user.key);
-      flashArrow('arrow-3');
-      syncStats();
-    }
-
-    user.cart = [];
-  }, [logEvent, flashArrow, syncStats]);
-
-  const fireLDFlagEval = useCallback((user: SimUser) => {
-    // Use server-side SDK via API route for accurate per-user evaluation
-    fetch('/api/evaluate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ users: [user] }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.results && data.results[0]) {
-          const res = data.results[0];
-          logEvent('ld', `variation('pricing-page-layout') \u2192 ${res.pricingLayout}`, `${user.firstName} ${user.lastName[0]}.`);
-          logEvent('ld', `variation('tealium-segment-offer') \u2192 ${res.segmentOffer}`, `${user.firstName} ${user.lastName[0]}.`);
-          setFlagPricing(res.pricingLayout);
-          setFlagSegmentOffer(res.segmentOffer);
-        }
-      })
-      .catch(() => {
-        const value = simulateFlagValue('pricing-page-layout');
-        logEvent('ld', `variation('pricing-page-layout') \u2192 ${value}`, `${user.firstName} ${user.lastName[0]}.`);
-      });
-
-    statsRef.current.ldEvents++;
-    syncStats();
-  }, [logEvent, syncStats]);
-
   // ================================================================
   // SIMULATION DISPATCH
   // ================================================================
-  const fireRealisticEvent = useCallback((user: SimUser) => {
-    const rand = Math.random();
-    if (rand < 0.25) fireTealiumPageView(user);
-    else if (rand < 0.45) fireTealiumProductView(user);
-    else if (rand < 0.60) fireTealiumAddToCart(user);
-    else if (rand < 0.75) fireTealiumPurchase(user);
-    else if (rand < 0.90) fireLDFlagEval(user);
-    else fireSegmentSync(user);
-  }, [fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireTealiumPurchase, fireLDFlagEval, fireSegmentSync]);
-
-  const fireEcommerceEvent = useCallback((user: SimUser) => {
-    const step = user.sessionEvents % 5;
-    switch(step) {
-      case 0: fireTealiumPageView(user); break;
-      case 1: fireTealiumProductView(user); break;
-      case 2: fireTealiumAddToCart(user); break;
-      case 3: fireLDFlagEval(user); break;
-      case 4: fireTealiumPurchase(user); break;
-    }
-    user.sessionEvents++;
-  }, [fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireLDFlagEval, fireTealiumPurchase]);
-
-  const fireSegmentEvent = useCallback((user: SimUser) => {
-    const rand = Math.random();
-    if (rand < 0.4) fireSegmentSync(user);
-    else if (rand < 0.7) fireTealiumPageView(user);
-    else fireLDFlagEval(user);
-  }, [fireSegmentSync, fireTealiumPageView, fireLDFlagEval]);
-
   const simulateEvent = useCallback(() => {
     if (!simRunningRef.current) return;
     const currentUsers = usersRef.current;
@@ -392,15 +282,54 @@ export default function Home() {
     const mode = simModeRef.current;
     const user = currentUsers[Math.floor(Math.random() * currentUsers.length)];
 
-    switch(mode) {
-      case 'realistic': fireRealisticEvent(user); break;
-      case 'ecommerce': fireEcommerceEvent(user); break;
-      case 'segment-sync': fireSegmentEvent(user); break;
-      case 'burst':
-        for(let i=0;i<5;i++) fireRealisticEvent(currentUsers[Math.floor(Math.random()*currentUsers.length)]);
+    switch (mode) {
+      case 'realistic': {
+        const rand = Math.random();
+        if (rand < 0.25) fireTealiumEvent('page_view', [user]);
+        else if (rand < 0.45) fireTealiumEvent('product_view', [user]);
+        else if (rand < 0.60) fireTealiumEvent('add_to_cart', [user]);
+        else if (rand < 0.75) fireTealiumEvent('purchase', [user]);
+        else if (rand < 0.90) fireLDFlagEval([user]);
+        else fireSegmentSync(user);
         break;
+      }
+      case 'ecommerce': {
+        const sessionEvents = userSessionEventsRef.current;
+        const step = (sessionEvents[user.key] || 0) % 5;
+        switch (step) {
+          case 0: fireTealiumEvent('page_view', [user]); break;
+          case 1: fireTealiumEvent('product_view', [user]); break;
+          case 2: fireTealiumEvent('add_to_cart', [user]); break;
+          case 3: fireLDFlagEval([user]); break;
+          case 4: fireTealiumEvent('purchase', [user]); break;
+        }
+        sessionEvents[user.key] = (sessionEvents[user.key] || 0) + 1;
+        break;
+      }
+      case 'segment-sync': {
+        const rand = Math.random();
+        if (rand < 0.4) fireSegmentSync(user);
+        else if (rand < 0.7) fireTealiumEvent('page_view', [user]);
+        else fireLDFlagEval([user]);
+        break;
+      }
+      case 'burst': {
+        const burstUsers = Array.from({ length: 5 }, () =>
+          currentUsers[Math.floor(Math.random() * currentUsers.length)]
+        );
+        for (const u of burstUsers) {
+          const rand = Math.random();
+          if (rand < 0.25) fireTealiumEvent('page_view', [u]);
+          else if (rand < 0.45) fireTealiumEvent('product_view', [u]);
+          else if (rand < 0.60) fireTealiumEvent('add_to_cart', [u]);
+          else if (rand < 0.75) fireTealiumEvent('purchase', [u]);
+          else if (rand < 0.90) fireLDFlagEval([u]);
+          else fireSegmentSync(u);
+        }
+        break;
+      }
     }
-  }, [fireRealisticEvent, fireEcommerceEvent, fireSegmentEvent]);
+  }, [fireTealiumEvent, fireLDFlagEval, fireSegmentSync]);
 
   // ================================================================
   // SCHEDULE NEXT EVENT
@@ -431,13 +360,10 @@ export default function Home() {
         country: COUNTRIES[Math.floor(Math.random() * COUNTRIES.length)],
         customerType: CUSTOMER_TYPES[Math.floor(Math.random() * CUSTOMER_TYPES.length)],
         color: COLORS[i % COLORS.length],
-        cart: [],
-        pageHistory: [],
-        totalSpent: 0,
-        sessionEvents: 0,
       });
     }
     usersRef.current = newUsers;
+    userSessionEventsRef.current = {};
     setUsers([...newUsers]);
   }, []);
 
@@ -455,10 +381,15 @@ export default function Home() {
 
     const elapsed = ((Date.now() - simStartRef.current) / 1000).toFixed(0);
     const s = statsRef.current;
-    logEvent('system', `Simulation stopped after ${elapsed}s \u2014 ${s.tealiumEvents} Tealium events, ${s.ldEvents} LD events, ${s.segmentSyncs} segment syncs`);
+    logEvent('system', `Simulation stopped after ${elapsed}s -- ${s.tealiumEvents} Tealium events, ${s.ldEvents} LD events, ${s.segmentSyncs} segment syncs`);
   }, [logEvent]);
 
   const startSimulation = useCallback(() => {
+    // Reset stats
+    statsRef.current = { tealiumEvents: 0, ldEvents: 0, segmentSyncs: 0 };
+    segmentsRef.current = { tealium: new Set() };
+    syncStats();
+
     generateUsers(userCount);
 
     simRunningRef.current = true;
@@ -468,8 +399,9 @@ export default function Home() {
 
     setSimStatusText('Running');
     setSimStatusColor('var(--green)');
+    setProgress(0);
 
-    logEvent('system', `Simulation started \u2014 ${userCount} users, mode: ${simMode}`);
+    logEvent('system', `Simulation started -- ${userCount} users, mode: ${simMode}`);
 
     // Bulk-evaluate flags for all users via server SDK to register them in LD
     const allUsers = usersRef.current;
@@ -488,7 +420,7 @@ export default function Home() {
         }
       })
       .catch(() => {
-        logEvent('system', 'Bulk flag evaluation failed \u2014 falling back to simulation mode');
+        logEvent('system', 'Bulk flag evaluation failed -- falling back to simulation mode');
       });
 
     scheduleNextEvent();
@@ -501,7 +433,7 @@ export default function Home() {
         if (elapsed >= simDurationRef.current) stopSimulation();
       }, 200);
     }
-  }, [userCount, simDurationSetting, simMode, generateUsers, logEvent, scheduleNextEvent, stopSimulation]);
+  }, [userCount, simDurationSetting, simMode, generateUsers, logEvent, scheduleNextEvent, stopSimulation, syncStats]);
 
   // ================================================================
   // MANUAL EVENTS
@@ -513,87 +445,15 @@ export default function Home() {
     const currentUsers = usersRef.current;
     const user = currentUsers[Math.floor(Math.random() * currentUsers.length)];
 
-    switch(type) {
-      case 'page_view': fireTealiumPageView(user); break;
-      case 'product_view': fireTealiumProductView(user); break;
-      case 'add_to_cart': fireTealiumAddToCart(user); break;
-      case 'purchase': fireTealiumPurchase(user); break;
-      case 'flag_eval': fireLDFlagEval(user); break;
+    switch (type) {
+      case 'page_view': fireTealiumEvent('page_view', [user]); break;
+      case 'product_view': fireTealiumEvent('product_view', [user]); break;
+      case 'add_to_cart': fireTealiumEvent('add_to_cart', [user]); break;
+      case 'purchase': fireTealiumEvent('purchase', [user]); break;
+      case 'flag_eval': fireLDFlagEval([user]); break;
       case 'segment_add': case 'segment_remove': fireSegmentSync(user); break;
     }
-  }, [generateUsers, fireTealiumPageView, fireTealiumProductView, fireTealiumAddToCart, fireTealiumPurchase, fireLDFlagEval, fireSegmentSync]);
-
-  // ================================================================
-  // SDK INITIALIZATION
-  // ================================================================
-  useEffect(() => {
-    const checkTealium = () => {
-      if (window.utag) {
-        setTealiumStatus('connected');
-        logEvent('system', 'Tealium utag.js loaded and ready');
-        tealiumReadyRef.current = true;
-      } else {
-        setTealiumStatus('pending');
-        logEvent('system', 'Waiting for Tealium utag.js to load...');
-        setTimeout(checkTealium, 2000);
-        return;
-      }
-    };
-
-    const checkLD = () => {
-      if (window.LDClient) {
-        try {
-          const ctx = { kind: 'user', key: 'demo-bootstrap', name: 'Demo Bootstrap', anonymous: false };
-          const client = window.LDClient.initialize(LD_CLIENT_SIDE_ID, ctx);
-          ldClientRef.current = client;
-          client.on('ready', () => {
-            setLdStatus('connected');
-            logEvent('system', 'LaunchDarkly SDK initialized and streaming');
-            ldReadyRef.current = true;
-            updateFlags();
-          });
-          client.on('change', () => { updateFlags(); });
-        } catch (e: unknown) {
-          setLdStatus('disconnected');
-          logEvent('system', 'LaunchDarkly SDK error: ' + (e instanceof Error ? e.message : String(e)));
-        }
-      } else {
-        setLdStatus('pending');
-        logEvent('system', 'LaunchDarkly SDK not loaded \u2014 check script tag');
-      }
-    };
-
-    // Load Tealium utag.js dynamically
-    window.utag_data = {
-      page_type: 'demo',
-      page_name: 'Tealium LD Integration Demo',
-      site_section: 'demo',
-      country_code: 'US',
-      currency_code: 'USD',
-      tealium_event: 'page_view'
-    };
-    const script = document.createElement('script');
-    script.src = `//tags.tiqcdn.com/utag/${TEALIUM_ACCOUNT}/${TEALIUM_PROFILE}/${TEALIUM_ENV}/utag.js`;
-    script.type = 'text/javascript';
-    script.async = true;
-    document.head.appendChild(script);
-
-    const timer = setTimeout(() => {
-      checkTealium();
-      checkLD();
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (simTimerRef.current) clearTimeout(simTimerRef.current);
-      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-    };
-  }, []);
+  }, [generateUsers, fireTealiumEvent, fireLDFlagEval, fireSegmentSync]);
 
   // ================================================================
   // HELPERS
@@ -608,11 +468,6 @@ export default function Home() {
   // ================================================================
   return (
     <>
-      <Script
-        src="https://unpkg.com/launchdarkly-js-client-sdk@3"
-        strategy="afterInteractive"
-      />
-
       <div className="header">
         <h1><span className="teal">Tealium</span> + <span className="ld">LaunchDarkly</span> Integration Demo</h1>
         <div className="status">
@@ -744,9 +599,9 @@ export default function Home() {
           <div className="card">
             <h3>Live Data Flow</h3>
             <div className="flow-viz">
-              <div className="flow-node browser">Browser<br /><small style={{ color: 'var(--text-dim)' }}>utag.js + LD SDK</small></div>
+              <div className="flow-node browser">Server<br /><small style={{ color: 'var(--text-dim)' }}>API Routes</small></div>
               <div className={`flow-arrow ${activeArrows['arrow-1'] ? 'active' : ''}`}>&rarr;</div>
-              <div className="flow-node tealium-node">Tealium<br /><small>EventStream</small></div>
+              <div className="flow-node tealium-node">Tealium<br /><small>Collect API</small></div>
               <div className={`flow-arrow ${activeArrows['arrow-2'] ? 'active' : ''}`}>&rarr;</div>
               <div className="flow-node ld-node">LaunchDarkly<br /><small>Metrics API</small></div>
             </div>
@@ -792,7 +647,7 @@ export default function Home() {
                 </div>
               </div>
               <p style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '12px' }}>
-                Flag values update in real-time via LD SDK streaming
+                Flag values evaluated server-side via LD Node SDK
               </p>
             </div>
 
@@ -855,11 +710,4 @@ export default function Home() {
       </div>
     </>
   );
-}
-
-// ================================================================
-// HELPER (outside component)
-// ================================================================
-function simulateFlagValue(_flag: string): unknown {
-  return ['control','simplified','comparison'][Math.floor(Math.random()*3)];
 }
