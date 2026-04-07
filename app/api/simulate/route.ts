@@ -81,6 +81,25 @@ function buildProductViewPayload(user: SimUser) {
   };
 }
 
+function buildCartViewPayload(user: SimUser) {
+  const product = randomItem(PRODUCTS);
+  return {
+    tealium_account: TEALIUM_ACCOUNT,
+    tealium_profile: TEALIUM_PROFILE,
+    tealium_datasource: TEALIUM_DATASOURCE,
+    tealium_visitor_id: user.key,
+    tealium_event: 'cart_view',
+    event_name: 'cart-viewed',
+    product_id: [product.id],
+    product_name: [product.name],
+    product_price: [String(product.price)],
+    product_unit_price: [product.price],
+    product_quantity: [1],
+    customer_id: user.key,
+    _detail: `cart_view: ${product.name}`,
+  };
+}
+
 function buildAddToCartPayload(user: SimUser) {
   const product = randomItem(PRODUCTS);
   return {
@@ -200,6 +219,9 @@ export async function POST(req: NextRequest) {
           break;
         case 'product_view':
           payload = buildProductViewPayload(user);
+          break;
+        case 'cart_view':
+          payload = buildCartViewPayload(user);
           break;
         case 'add_to_cart':
           payload = buildAddToCartPayload(user);
