@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const TEALIUM_ACCOUNT = 'sbx-launchdarkly';
 const TEALIUM_PROFILE = 'main';
+const TEALIUM_DATASOURCE = 'ybz7mo';
 const TEALIUM_COLLECT_URL = 'https://collect.tealiumiq.com/event';
 
 const PRODUCTS = [
@@ -44,6 +45,7 @@ function buildPageViewPayload(user: SimUser) {
   return {
     tealium_account: TEALIUM_ACCOUNT,
     tealium_profile: TEALIUM_PROFILE,
+    tealium_datasource: TEALIUM_DATASOURCE,
     tealium_visitor_id: user.key,
     tealium_event: 'page_view',
     page_name: page,
@@ -61,6 +63,7 @@ function buildProductViewPayload(user: SimUser) {
   return {
     tealium_account: TEALIUM_ACCOUNT,
     tealium_profile: TEALIUM_PROFILE,
+    tealium_datasource: TEALIUM_DATASOURCE,
     tealium_visitor_id: user.key,
     tealium_event: 'product_view',
     event_name: 'product-viewed',
@@ -83,6 +86,7 @@ function buildAddToCartPayload(user: SimUser) {
   return {
     tealium_account: TEALIUM_ACCOUNT,
     tealium_profile: TEALIUM_PROFILE,
+    tealium_datasource: TEALIUM_DATASOURCE,
     tealium_visitor_id: user.key,
     tealium_event: 'cart_add',
     event_name: 'add-to-cart',
@@ -112,6 +116,7 @@ function buildPurchasePayload(user: SimUser) {
   return {
     tealium_account: TEALIUM_ACCOUNT,
     tealium_profile: TEALIUM_PROFILE,
+    tealium_datasource: TEALIUM_DATASOURCE,
     tealium_visitor_id: user.key,
     tealium_event: 'purchase',
     event_name: 'purchase-complete',
