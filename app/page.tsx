@@ -285,23 +285,25 @@ export default function Home() {
     switch (mode) {
       case 'realistic': {
         const rand = Math.random();
-        if (rand < 0.25) fireTealiumEvent('page_view', [user]);
-        else if (rand < 0.45) fireTealiumEvent('product_view', [user]);
-        else if (rand < 0.60) fireTealiumEvent('add_to_cart', [user]);
-        else if (rand < 0.75) fireTealiumEvent('purchase', [user]);
-        else if (rand < 0.90) fireLDFlagEval([user]);
+        if (rand < 0.20) fireTealiumEvent('page_view', [user]);
+        else if (rand < 0.35) fireTealiumEvent('product_view', [user]);
+        else if (rand < 0.45) fireTealiumEvent('cart_view', [user]);
+        else if (rand < 0.55) fireTealiumEvent('add_to_cart', [user]);
+        else if (rand < 0.70) fireTealiumEvent('purchase', [user]);
+        else if (rand < 0.88) fireLDFlagEval([user]);
         else fireSegmentSync(user);
         break;
       }
       case 'ecommerce': {
         const sessionEvents = userSessionEventsRef.current;
-        const step = (sessionEvents[user.key] || 0) % 5;
+        const step = (sessionEvents[user.key] || 0) % 6;
         switch (step) {
           case 0: fireTealiumEvent('page_view', [user]); break;
           case 1: fireTealiumEvent('product_view', [user]); break;
-          case 2: fireTealiumEvent('add_to_cart', [user]); break;
-          case 3: fireLDFlagEval([user]); break;
-          case 4: fireTealiumEvent('purchase', [user]); break;
+          case 2: fireTealiumEvent('cart_view', [user]); break;
+          case 3: fireTealiumEvent('add_to_cart', [user]); break;
+          case 4: fireLDFlagEval([user]); break;
+          case 5: fireTealiumEvent('purchase', [user]); break;
         }
         sessionEvents[user.key] = (sessionEvents[user.key] || 0) + 1;
         break;
@@ -448,6 +450,7 @@ export default function Home() {
     switch (type) {
       case 'page_view': fireTealiumEvent('page_view', [user]); break;
       case 'product_view': fireTealiumEvent('product_view', [user]); break;
+      case 'cart_view': fireTealiumEvent('cart_view', [user]); break;
       case 'add_to_cart': fireTealiumEvent('add_to_cart', [user]); break;
       case 'purchase': fireTealiumEvent('purchase', [user]); break;
       case 'flag_eval': fireLDFlagEval([user]); break;
@@ -569,6 +572,7 @@ export default function Home() {
           <div className="sim-controls">
             <button className="btn btn-teal" onClick={() => fireManualEvent('page_view')}>Page View</button>
             <button className="btn btn-teal" onClick={() => fireManualEvent('product_view')}>Product View</button>
+            <button className="btn btn-teal" onClick={() => fireManualEvent('cart_view')}>Cart View</button>
             <button className="btn btn-teal" onClick={() => fireManualEvent('add_to_cart')}>Add to Cart</button>
             <button className="btn btn-teal" onClick={() => fireManualEvent('purchase')}>Purchase</button>
             <button className="btn btn-ld" onClick={() => fireManualEvent('flag_eval')}>Flag Eval</button>
